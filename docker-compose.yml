@@ -1,0 +1,39 @@
+# CookHero 本地开发环境
+# 启动所有依赖服务：PostgreSQL + Milvus + Redis
+#   docker compose up -d          # 启动
+#   docker compose down           # 停止
+#   docker compose down -v        # 停止并删除数据（重置）
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: cookhero-pg
+    environment:
+      POSTGRES_USER: cookhero
+      POSTGRES_PASSWORD: cookhero_secret
+      POSTGRES_DB: cookhero
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: cookhero-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+
+  redis:
+    image: redis:7-alpine
+    container_name: cookhero-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  milvus_data:

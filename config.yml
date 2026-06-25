@@ -1,0 +1,115 @@
+  # ============================================================
+  # CookHero 主配置文件
+  # ============================================================
+  # 非敏感配置写在这里（模型名、端口、参数等）
+  # 敏感配置（API Key、密码）写在 .env 文件中
+  # ====================================================
+   # --- 1. LLM 提供商配置（两层分级） ---
+  llm:
+    # 快速层：低延迟，用于意图检测、查询改写等辅助任务
+    fast:
+      model_names:
+        - "qwen-plus"
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      temperature: 1.0
+      max_tokens: 8192
+
+    # 标准层：高质量，用于最终回答生成
+    normal:
+      model_names:
+        - "qwen-max"
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      temperature: 1.0
+      max_tokens: 8192
+       # --- 2. Embedding 模型配置 ---
+  embedding:
+    # DashScope 文本嵌入模型，将文本转为 1024 维向量
+    model_name: "text-embedding-v3"
+
+  # --- 3. 向量存储配置 ---
+  vector_store:
+    type: "milvus"
+    collection_names:
+      recipes: "cook_hero_recipes"        # 全局菜谱
+      personal: "cook_hero_personal_docs" # 用户文档
+
+  # --- 4. RAG 检索参数 ---
+  retrieval:
+    top_k: 9                  # 每次检索返回的最大文档数
+    score_threshold: 0.2      # 相关性分数阈值（低于此分数的结果丢弃）
+    ranker_type: "weighted"   # 融合策略：weighted（加权）或rrf（倒数排名融合）
+    ranker_weights: [0.8, 0.2]  # 权重：[Dense向量, BM25稀疏向量]
+# --- 5. 缓存配置（双层缓存） ---
+  cache:
+    enabled: true
+    ttl: 3600                  # 缓存过期时间（秒），1小时
+    l2_enabled: true           # 启用 L2 语义缓存
+    similarity_threshold: 0.92 # L2 语义相似度阈值
+    vector_collection: "cookhero_retrieval_cache"
+
+ # --- 6. 数据库连接 ---
+  database:
+    postgres:
+      host: "127.0.0.1"
+      port: 5432
+      database: "cookhero"
+      user: "cookhero"
+      password: "${DATABASE_PASSWORD}"
+      pool_size: 20
+      max_overflow: 30
+      pool_timeout: 30
+      pool_recycle: 1800
+      echo: false              # 设为 true 可打印 SQL 语句（调试用）
+
+    redis:
+      host: "127.0.0.1"
+      port: 6379
+      db: 0
+      password: "${REDIS_PASSWORD}"
+
+    milvus:
+      host: "127.0.0.1"
+      port: 19530
+
+ # --- 7. 安全防护配置 ---
+security:
+  rate_limit:
+    enabled: true
+    default:
+      max_requests: 60
+      window_seconds: 60
+    endpoints:
+      "/api/v1/agent/chat":
+        max_requests: 10
+        window_seconds: 60
+      "/api/v1/conversations/":
+        max_requests: 20
+        window_seconds: 60
+      "/api/v1/auth/login":
+        max_requests: 5
+        window_seconds: 60
+      "/api/v1/auth/register":
+        max_requests: 3
+        window_seconds: 60
+
+  prompt_guard:
+    enabled: true
+    max_message_length: 4000
+    deny_patterns:
+      - "sql_injection"
+      - "command_injection"
+      - "prompt_leak"
+      - "jailbreak"
+    llm_check:
+      enabled: false
+      threshold: 0.7
+
+# --- 8. 上下文管理配置 ---
+context:
+  compression:
+    enabled: true
+    trigger_turns: 10
+    incremental_turns: 5
+    recent_keep_turns: 5
+    max_tokens: 8192
+    reserve_ratio: 0.6

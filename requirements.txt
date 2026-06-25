@@ -1,0 +1,42 @@
+# ============================================================
+# CookHero 依赖清单
+# ============================================================
+# 核心框架
+fastapi==0.115.0
+uvicorn[standard]==0.35.0
+
+# 配置管理
+PyYAML==6.0.2
+python-dotenv==1.1.0
+
+# 数据库
+sqlalchemy[asyncio]==2.0.36
+psycopg[binary]==3.2.4
+psycopg-pool==3.2.6
+
+# LangChain 生态
+langchain==1.1.0
+langchain-core==1.2.11
+langchain-openai==1.1.0
+langchain-milvus==0.3.0
+langchain-text-splitters==1.0.0
+langchain-huggingface==1.1.0
+
+# 向量数据库
+pymilvus==2.6.0
+
+# 缓存
+redis[hiredis]==5.2.1
+
+# 安全
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# DashScope SDK（阿里云 Embedding API）
+dashscope>=1.20.0
+
+# 工具
+httpx==0.28.1
+aiofiles==24.1.0
+Pillow==11.1.0
