@@ -97,6 +97,7 @@ class ReActAgent:
         llm_invoker: LLMInvoker,
         tools: List[Any] = None,
         max_iterations: int = 8,
+        system_prompt:str = "", # ← P1 新增：允许自定义 systemprompt
     ):
         """
         初始化 Agent。
@@ -111,6 +112,7 @@ class ReActAgent:
         self.max_iterations = max_iterations
         # 构建工具索引: tool_name → tool_function
         self._tool_map = {tool.name: tool for tool in self.tools}
+        self.system_prompt = system_prompt or AGENT_SYSTEM_PROMPT  #没传就用默认
 
     async def run(
         self,
@@ -136,7 +138,7 @@ class ReActAgent:
               - {"type": "error", "content": "..."}
         """
         # ===== 构建消息列表 =====
-        messages = [SystemMessage(content=AGENT_SYSTEM_PROMPT)]
+        messages = [SystemMessage(content=self.system_prompt)]
 
         # 填入历史消息
         if context_messages:

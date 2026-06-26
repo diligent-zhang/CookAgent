@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 
     # 将全局服务注入到 Agent 模块
     from app.agent import init_agent_module
-    init_agent_module(llm_provider, rag_service)
+    init_agent_module(llm_provider, rag_service, redis_client)
     print("[STARTUP] Agent module initialized.")
 
     yield

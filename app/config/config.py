@@ -233,6 +233,34 @@ class Settings:
         self.rate_limit = RateLimitConfig(security_raw.get("rate_limit", {}))
         self.prompt_guard = PromptGuardConfig(security_raw.get("prompt_guard", {}))
 
+        # ===== P1 新增：意图识别与查询改写配置 =====
+        conv_raw = raw.get("conversation", {})
+        intent_raw = conv_raw.get("intent_detection", {})
+        self.intent_detection_enabled: bool = intent_raw.get("enabled", True)
+        self.intent_cache_ttl: int = intent_raw.get("cache_ttl", 3600)
+        self.intent_fallback: str = intent_raw.get("fallback_intent", "recipe_search")
+        self.intent_timeout: int = intent_raw.get("timeout", 2)
+
+        rewrite_raw = conv_raw.get("query_rewriting", {})
+        self.query_rewriting_enabled: bool = rewrite_raw.get("enabled", True)
+        self.query_rewrite_max_length: int = rewrite_raw.get("max_rewrite_length", 200)
+
+        # ===== P1 新增：Agent 配置 =====
+        agent_raw = raw.get("agent", {})
+        self.enabled_agents: list = agent_raw.get(
+            "enabled_agents", ["recipe_master", "general"]
+        )
+
+        # ===== P1 新增：Reranker 配置 =====
+        rag_raw = raw.get("rag", {})
+        reranker_raw = rag_raw.get("reranker", {})
+        self.reranker_enabled: bool = reranker_raw.get("enabled", True)
+        self.reranker_model: str = reranker_raw.get("model", "gte-rerank")
+        self.reranker_top_n: int = reranker_raw.get("top_n", 5)
+
+        metadata_filter_raw = rag_raw.get("metadata_filter", {})
+        self.metadata_filter_enabled: bool = metadata_filter_raw.get("enabled", True)
+
         # JWT 密钥（从 .env 加载，已在 load_config 中注入）
         self.JWT_SECRET_KEY: str = (
             raw.get("JWT_SECRET_KEY", "")

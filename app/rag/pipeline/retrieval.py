@@ -204,6 +204,44 @@ class RetrievalOptimizationModule:
         # 均衡型
         return "weighted", [0.5, 0.5]
 
+    @staticmethod
+    def build_metadata_filter_expr(
+        difficulty: int | None = None,
+        category: str | None = None,
+        cooking_time_minutes: int | None = None,
+        tags: list | None = None,
+    ) -> str | None:
+        """
+        构建 Milvus 标量过滤表达式。
+
+        参数来自 IntentDetector 提取的 filters。
+
+        示例：
+          difficulty=2, category="soup"
+          → 'difficulty <= 2 and category == "soup"'
+
+        为什么在 Milvus 侧过滤而不是 Python 侧？
+          - Milvus 支持标量字段索引过滤，性能远高于 Python 后过滤
+          - 先过滤再检索保证返回 top_k 个全部符合条件
+          - 如果先取 top_k 再 Python 过滤，可能符合条件的只剩 2 条
+        """
+        parts = []
+
+        if difficulty is not None:
+            parts.append(f"difficulty <= {int(difficulty)}")
+
+        if category is not None and category.strip():
+            parts.append(f'category == "{category}"')
+
+        if cooking_time_minutes is not None:
+            parts.append(f"cooking_time_minutes <= {int(cooking_time_minutes)}")
+
+        if tags:
+            for tag in tags:
+                parts.append(f'array_contains(tags, "{tag}")')
+
+        return " and ".join(parts) if parts else None
+
 
 # ===== 模块解释 =====
 #

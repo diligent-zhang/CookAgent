@@ -16,6 +16,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database.conversation_repository import ConversationRepository
 from app.llm.context import llm_context
 from app.llm.provider import LLMInvoker, LLMProvider
@@ -62,6 +63,21 @@ class ConversationService:
         self.llm_provider = llm_provider
         self.rag_service = rag_service
         self.repo = ConversationRepository(db)
+
+        # ===== P1 新增：意图识别和查询改写 =====
+        from app.conversation.intent import IntentDetector
+        from app.conversation.query_rewriter import QueryRewriter
+
+        self.intent_detector = IntentDetector(
+            llm_provider=llm_provider,
+            redis_client=None,
+            cache_ttl=settings.intent_cache_ttl,
+        )
+        self.query_rewriter = QueryRewriter(
+            llm_provider=llm_provider,
+            enabled=settings.query_rewriting_enabled,
+            max_length=settings.query_rewrite_max_length,
+        )
 
     # ========== 对话管理 ==========
 
@@ -130,11 +146,42 @@ class ConversationService:
         # ==== Step 2: 加载对话历史 ====
         history = await self.repo.get_history_as_dicts(conv_id)
 
-        # ==== Step 3: RAG 检索 ====
+        # ==== Step 2.5: 意图识别 (P1 新增) ====
+        try:
+            intent = await self.intent_detector.detect(user_message)
+            logger.info(
+                "Intent detected: %s (confidence=%.2f)",
+                intent.type, intent.confidence,
+            )
+        except Exception as e:
+            logger.warning("Intent detection failed, using default: %s", e)
+            from app.conversation.intent import Intent, IntentFilters
+            intent = Intent(
+                type=settings.intent_fallback,
+                confidence=0.3,
+                keywords=[user_message],
+                filters=IntentFilters(),
+            )
+
+        # ==== Step 2.6: 查询改写 (P1 新增) ====
+        search_query = user_message
+        if settings.query_rewriting_enabled:
+            try:
+                rewritten = await self.query_rewriter.rewrite(
+                    query=user_message,
+                    intent_type=intent.type,
+                )
+                if rewritten != user_message:
+                    search_query = rewritten
+                    yield {"type": "thought", "content": f"优化查询: {rewritten}"}
+            except Exception as e:
+                logger.warning("Query rewriting failed: %s", e)
+
+        # ==== Step 3: RAG 检索（使用改写后的查询）====
         yield {"type": "thinking", "content": "正在检索相关菜谱..."}
         try:
             retrieved_docs = await self.rag_service.retrieve(
-                query=user_message,
+                query=search_query,  # ← 用改写后的查询
                 user_id=user_id,
             )
         except Exception as e:
