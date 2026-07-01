@@ -141,22 +141,17 @@ class RecipeMasterAgent(BaseAgent):
         # ==== 获取工具集 ====
         tools = get_all_tools()
 
-        # ==== 创建 ReActAgent（复用现有实现，只换 system prompt）====
+        # ==== 创建 ReActAgent，注入菜谱专家专用 system prompt ====
+        # ReActAgent.__init__ 已支持 system_prompt 参数（P1 新增），
+        # 传入 RECIPE_MASTER_PROMPT 后，Agent 的推理行为会从"通用助手"
+        # 切换为"菜谱专家"模式：回答格式化为"先列菜谱→简要说明→完整步骤→小贴士"，
+        # 并更强调饮食限制检查和安全性。
         agent = ReActAgent(
             llm_invoker=llm_invoker,
             tools=tools,
             max_iterations=8,
+            system_prompt=RECIPE_MASTER_PROMPT,
         )
-
-        # ==== 执行 ReAct 循环 ====
-        # 注意：这里需要把菜谱专用的 system prompt 传给 Agent
-        # 当前 ReActAgent.__init__ 里不接收 system_prompt 参数，
-        # 所以需要一个小改造：在 run() 方法里用传入的 prompt 替换默认的
-        #
-        # 临时方案：先手动构建 messages，把专用 prompt 放进去，
-        # 然后调 agent 的内部循环。
-        # 如果后续改成 ReActAgent 支持自定义 system_prompt，
-        # 这里就简化了。
 
         final_answer = ""
         sources = []

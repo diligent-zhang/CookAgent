@@ -8,7 +8,17 @@ Agent API 路由
    DELETE /agent/sessions/{id}         删除会话
 """
 import json
+from dataclasses import asdict, is_dataclass
 from typing import List
+
+
+class _JSONEncoder(json.JSONEncoder):
+    """支持 dataclass / Source 等对象的 JSON 编码器。"""
+    def default(self, o):
+        if is_dataclass(o) and not isinstance(o, type):
+            return asdict(o)
+        return super().default(o)
+
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -71,6 +81,13 @@ def init_agent_module(llm_provider, rag_service, redis_client=None):
         except Exception as e:
             logger.warning("Failed to init Reranker, continuing without: %s", e)
 
+    # 【P1 修复】将 Reranker 注入 RAGService，使其在每次检索时自动精排
+    # 之前 Reranker 只传给了 RecipeMasterAgent 但从未被调用，是死代码。
+    # 注入到 RAGService 后，所有通过 rag_service.retrieve() 的查询
+    # （包括 search_recipes 工具、GeneralAgent 的 RAG 检索）都能享受精排。
+    if reranker:
+        rag_service.set_reranker(reranker)
+
     # ==== 创建 Agent 实例 ====
     general_agent = GeneralAgent(llm_provider, rag_service)
     recipe_master = RecipeMasterAgent(llm_provider, rag_service, reranker=reranker)
@@ -92,7 +109,14 @@ def init_agent_module(llm_provider, rag_service, redis_client=None):
 
 
 def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
-    return AgentService(db, _llm_provider, _rag_service)
+    """
+    FastAPI 依赖注入：每请求创建一个 AgentService 实例。
+
+    传入 _redis_client 以启用意图缓存——相同查询的意图识别结果
+    会被缓存到 Redis（TTL 由 settings.intent_cache_ttl 控制），
+    避免每次请求都调 fast LLM（~300ms）。
+    """
+    return AgentService(db, _llm_provider, _rag_service, _redis_client)
 
 
 # ===== 会话管理 =====
@@ -166,7 +190,7 @@ async def agent_chat(
     async def event_stream():
         """SSE 事件生成器。"""
         # 先发送 session_id，让前端知道是哪个会话
-        yield f"event: session\ndata: {json.dumps({'session_id': session_id}, ensure_ascii=False)}\n\n"
+        yield f"event: session\ndata: {json.dumps({'session_id': session_id}, ensure_ascii=False, cls=_JSONEncoder)}\n\n"
 
         async for event in service.stream_agent_chat(
             user_id=current_user.id,
@@ -174,7 +198,7 @@ async def agent_chat(
             user_message=body.content,
         ):
             event_type = event.get("type", "message")
-            yield f"event: {event_type}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield f"event: {event_type}\ndata: {json.dumps(event, ensure_ascii=False, cls=_JSONEncoder)}\n\n"
 
     return StreamingResponse(
         event_stream(),

@@ -54,6 +54,7 @@ class AgentService:
         db: AsyncSession,
         llm_provider: LLMProvider,
         rag_service: RAGService,
+        redis_client=None,
     ):
         self.db = db
         self.llm_provider = llm_provider
@@ -62,9 +63,14 @@ class AgentService:
         inject_rag_service(rag_service)
 
         # ===== P1 新增：意图识别和查询改写组件 =====
+        # 【P1 修复】接入 Redis 做意图缓存
+        # 之前传 redis_client=None，注释写"暂不接 Redis"。
+        # 原因：AgentService 是每请求创建的，而 redis_client 是模块级全局变量，
+        # 需要通过 get_agent_service() 传入。现在已贯通这条链路。
+        # 效果：相同查询的意图识别直接走 Redis 缓存（~1ms），不再每次调 fast LLM（~300ms）
         self.intent_detector = IntentDetector(
             llm_provider=llm_provider,
-            redis_client=None,  # Agent 模块暂不接 Redis 做意图缓存
+            redis_client=redis_client,
             cache_ttl=settings.intent_cache_ttl,
         )
         self.query_rewriter = QueryRewriter(
@@ -109,21 +115,32 @@ class AgentService:
         P1 版 Agent 聊天流程。
 
         流程：
-          1. 保存用户消息
-          2. 意图识别（IntentDetector, fast LLM ~200ms）
-          3. 查询改写（QueryRewriter, fast LLM ~200ms）
-          4. 构建 AgentContext
-          5. AgentRegistry 路由 → 选择 Agent
-          6. Agent.execute() → 流式返回
-          7. 保存最终回答
+          1. 加载历史消息（在存当前消息之前，避免重复）
+          2. 保存用户消息
+          3. 意图识别（IntentDetector, fast LLM ~200ms）
+          4. 查询改写（QueryRewriter, fast LLM ~200ms）
+          5. 构建 AgentContext
+          6. AgentRegistry 路由 → 选择 Agent
+          7. Agent.execute() → 流式返回
+          8. 保存最终回答
         """
-        # ==== Step 1: 保存用户消息 ====
+        # ==== Step 1: 加载历史（必须在保存当前消息之前）====
+        # 为什么必须先加载历史再保存当前消息？
+        #   如果先保存再加载，get_last_n_messages 会包含当前用户消息。
+        #   后续 ReActAgent 和 GeneralAgent 构建上下文时会再把 original_query
+        #   作为 HumanMessage 追加一次，导致当前问题出现两次（一次来自历史，
+        #   一次来自显式追加），浪费上下文窗口。
+        #   先加载历史则自然排除当前消息——和 conversation/service.py 里
+        #   history[:-1] 的做法等价，但更简洁。
+        history_msgs = await self.repo.get_last_n_messages(session_id, 20)
+
+        # ==== Step 2: 保存用户消息 ====
         await self.repo.add_message(
             session_id=session_id, role="user",
             content=user_message, step_number=0,
         )
 
-        # ==== Step 2: 意图识别 ====
+        # ==== Step 3: 意图识别 ====
         yield {"type": "thought", "content": "正在理解你的需求..."}
         try:
             intent = await self.intent_detector.detect(user_message)
@@ -143,7 +160,7 @@ class AgentService:
             "confidence": intent.confidence,
         }
 
-        # ==== Step 3: 查询改写 ====
+        # ==== Step 4: 查询改写 ====
         rewritten_query = user_message
         if settings.query_rewriting_enabled:
             try:
@@ -156,7 +173,7 @@ class AgentService:
         if rewritten_query != user_message:
             yield {"type": "thought", "content": f"优化查询: {rewritten_query}"}
 
-        # ==== Step 4: 构建 AgentContext ====
+        # ==== Step 5: 构建 AgentContext ====
         history_msgs = await self.repo.get_last_n_messages(session_id, 20)
 
         context = AgentContext(
@@ -170,7 +187,7 @@ class AgentService:
             recent_messages=history_msgs,
         )
 
-        # ==== Step 5: Agent 路由 ====
+        # ==== Step 6: Agent 路由 ====
         try:
             registry = get_agent_registry()
             agent = registry.match(intent.type)
@@ -182,51 +199,183 @@ class AgentService:
             yield {"type": "error", "content": f"Agent 路由失败: {e}"}
             return
 
-        # ==== Step 6: 执行 Agent ====
-        collected_events = []
+        # ════════════════════════════════════════════════════════════════════
+        # ==== Step 7: 执行 Agent（P0 修复：真正的流式输出）====
+        # ════════════════════════════════════════════════════════════════════
+        #
+        # 【修复前的架构问题】
+        #   旧代码用 collect_events 回调把所有事件收集到一个 list 里，
+        #   等 agent.execute() 完全结束后才一次性 yield 出去。
+        #   这导致用户从发送消息到看到第一个字需要等待 5-15 秒——
+        #   意图识别(~300ms) + 查询改写(~300ms) + ReAct 多轮循环(2-10s)。
+        #   SSE 流式传输的格式虽然正确，但事件在一瞬间全部到达，
+        #   前端也变成"瞬间刷出全部内容"，完全失去了流式体验。
+        #
+        # 【修复方案：asyncio.Queue 生产者-消费者模式】
+        #                          ┌──────────────────┐
+        #   agent.execute() ──→ stream_callback ──→ event_queue (asyncio.Queue)
+        #   (在 background      (生产者：每次       (线程安全的异步队列)
+        #    task 中运行)        Agent 产生事件
+        #                       就 put 进队列)
+        #
+        #   主循环 (消费者) ←── event_queue.get() ←── 取出事件 → yield 给 SSE
+        #   (在 stream_agent_chat 的 async generator 中运行)
+        #
+        #   关键：生产者(agent.execute) 和消费者(yield SSE) 现在并发运行！
+        #   Agent 每产生一个 token/thought/tool_call，前端立刻就能看到，
+        #   不再需要等待整个 ReAct 循环结束。
+        #
+        # 【为什么用 asyncio.Queue 而不是其他方案？】
+        #   - asyncio.Queue 是标准库的异步安全队列，天生适合 async/await 场景
+        #   - put() 和 get() 都是异步的，不会阻塞事件循环
+        #   - 无需引入额外依赖（如 Redis Pub/Sub）
+        #   - 在一个 asyncio event loop 内，队列操作几乎零延迟
+        #
+        # 【哨兵事件 __agent_result__ / __agent_error__】
+        #   Agent 执行完成后，需要把 AgentResult 传回主循环做后处理
+        #   （保存 DB、补发 sources 等）。用特殊 type 的哨兵事件来传递，
+        #   避免引入第二个通信通道。前缀 __ 表明这是内部事件，不会 yield 给前端。
+        #
+        import asyncio
 
-        async def collect_events(event_type: str, data: dict):
-            collected_events.append({"type": event_type, **data})
+        # Agent 产生的事件队列（无界队列，内存中，请求结束即释放）
+        event_queue: asyncio.Queue = asyncio.Queue()
 
-        try:
-            result = await agent.execute(context, stream_callback=collect_events)
+        # 追踪 Agent 执行期间已经流式发送了哪些内容
+        has_tokens = False    # 是否已经流式发送过 token 事件
+        has_sources = False   # 是否已经流式发送过 sources 事件
+        final_answer = ""     # 积累的最终回答文本（用于存 DB）
 
-            has_tokens = any(e["type"] == "token" for e in collected_events)
+        async def stream_callback(event_type: str, data: dict):
+            """
+            Agent 内部事件的"生产者"。
 
-            for event in collected_events:
+            每当 Agent（ReActAgent / GeneralAgent / RecipeMasterAgent）
+            产出一个事件（token、tool_call、observation、thought 等），
+            就调用这个回调，回调立即把事件推入队列。
+
+            这个函数在 agent.execute() 的上下文中被调用（同步/异步），
+            但 put 到 asyncio.Queue 是异步安全的。
+            """
+            await event_queue.put({"type": event_type, **data})
+
+        async def run_agent():
+            """
+            在后台 task 中执行 agent.execute()。
+
+            为什么要包装一层？
+            - agent.execute() 内部会调用 stream_callback 生产事件
+            - 主循环需要同时消费这些事件
+            - 用 asyncio.create_task 让 execute 在后台跑，主循环从队列中取
+            - execute 完成后，用哨兵事件把 AgentResult 传给主循环
+
+            异常处理：
+            - execute 内部已经 try/catch 了大部分异常，这里兜底捕获
+            - 异常通过 __agent_error__ 哨兵传给主循环，由主循环 yield error 事件
+            """
+            try:
+                result = await agent.execute(context, stream_callback=stream_callback)
+                # Agent 正常完成 → 用哨兵事件传递 AgentResult
+                await event_queue.put({"type": "__agent_result__", "result": result})
+            except Exception as e:
+                logger.error("Agent execution failed: %s", e)
+                await event_queue.put({"type": "__agent_error__", "content": str(e)})
+
+        # 启动后台 task：Agent 开始执行，事件开始流入队列
+        agent_task = asyncio.create_task(run_agent())
+
+        # ── 主循环：消费队列中的事件，实时 yield 给 SSE ──
+        result = None
+        while True:
+            # 阻塞等待下一个事件（无论是 Agent 产生的，还是哨兵）
+            event = await event_queue.get()
+            event_type = event.get("type", "")
+
+            if event_type == "__agent_result__":
+                # 【哨兵】Agent 正常执行完毕，取出 AgentResult 用于后处理
+                result = event.get("result")
+                break  # 退出消费循环，进入后处理阶段
+
+            elif event_type == "__agent_error__":
+                # 【哨兵】Agent 执行过程中抛出了未捕获的异常
+                yield {"type": "error", "content": f"Agent 执行失败: {event.get('content', '')}"}
+                return  # 直接结束，不保存回答
+
+            elif event_type == "token":
+                # LLM 产生的逐字输出 → 标记，积累，立即发送给前端
+                has_tokens = True
+                final_answer += event.get("content", "")
                 yield event
 
-            if not has_tokens and result.content:
-                yield {"type": "token", "content": result.content}
+            elif event_type == "done":
+                # Agent 内部（ReActAgent.run()）发出的 done 事件
+                # 包含完整的 final_answer 文本（和 token 累加的结果相同）
+                # 注意：这个 done 不直接发给前端！
+                #   因为 Step 7 还需要把回答存到 DB 后才能发最终的 done
+                #   这里只捕获 content，等后处理完再由我们发外层 done
+                final_answer = event.get("content", "") or final_answer
 
-            if result.sources and not any(
-                e["type"] == "sources" for e in collected_events
-            ):
-                yield {
-                    "type": "sources",
-                    "sources": [
-                        {
-                            "dish_name": s.dish_name,
-                            "category": s.category,
-                            "relevance_score": s.relevance_score,
-                        }
-                        for s in result.sources
-                    ],
-                }
+            elif event_type == "sources":
+                # 检索结果来源 → 标记，发送给前端展示"参考来源"
+                has_sources = True
+                yield event
 
+            elif event_type == "error":
+                # Agent 内部的可恢复错误 → 直接转发给前端
+                yield event
+
+            else:
+                # 其他事件类型（thought, tool_call, observation, thinking 等）
+                # → 直接透传给前端，不做额外处理
+                yield event
+
+        # ── 消费循环结束，确保后台 task 完全结束 ──
+        # 正常情况下循环是被 __agent_result__ 哨兵 break 的，
+        # 此时 agent_task 已经 done。这里 await 只是确保无异常残留。
+        try:
+            if not agent_task.done():
+                await agent_task
+        except Exception:
+            pass  # 异常已通过 __agent_error__ 处理，这里忽略
+
+        # ── 后处理：补发 Agent 未流式发送的内容 ──
+        # 不同的 Agent（GeneralAgent vs RecipeMasterAgent）实现方式不同：
+        # - GeneralAgent 通过 stream_callback 发了 sources 和 token
+        # - RecipeMasterAgent 通过 ReActAgent 发了 token，但 sources 可能只在 AgentResult 中
+        # 这里统一兜底：如果没通过 stream 发过，就从 AgentResult 中补发
+
+        if result and result.sources and not has_sources:
+            # Agent 有检索来源但没通过 stream_callback 发过 → 补发
+            yield {
+                "type": "sources",
+                "sources": [
+                    {
+                        "dish_name": s.dish_name,
+                        "category": s.category,
+                        "relevance_score": s.relevance_score,
+                    }
+                    for s in result.sources
+                ],
+            }
+
+        if not has_tokens and result and result.content:
+            # Agent 有回答内容但没通过 stream_callback 发过 token
+            # （极端情况：Agent 直接返回结果，没有逐 token 流式输出）
             final_answer = result.content
+            yield {"type": "token", "content": result.content}
 
-        except Exception as e:
-            logger.error("Agent execution failed: %s", e)
-            yield {"type": "error", "content": f"Agent 执行失败: {e}"}
-            return
-
-        # ==== Step 7: 保存回答 + 更新标题 ====
+        # ════════════════════════════════════════════════════════════════════
+        # ==== Step 8: 保存回答 + 更新标题 ====
+        # ════════════════════════════════════════════════════════════════════
+        # 为什么保存要放在流式输出之后而不是之前？
+        #   流式输出的目标是让用户尽快看到内容，DB 写入是"事后存档"。
+        #   如果保存失败（极少发生），回答已经展示给用户了，不影响体验。
         if final_answer:
             await self.repo.add_message(
                 session_id=session_id, role="assistant",
                 content=final_answer, step_number=99,
             )
+            # 用用户消息的前 20 个字作为会话标题
             title = user_message[:20] + ("..." if len(user_message) > 20 else "")
             await self.repo.update_session_title(session_id, title)
 

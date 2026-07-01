@@ -54,6 +54,10 @@ class RAGService:
         self.cache: Optional[CacheManager] = None
         self._initialized = False
 
+        # Reranker（精排器），由外部通过 set_reranker() 注入
+        # 可选组件——配置关了或初始化失败时为 None，检索时自动跳过
+        self.reranker = None
+
     async def initialize(self) -> None:
         """
         初始化 RAG 管道的所有组件。
@@ -111,6 +115,19 @@ class RAGService:
         self._initialized = True
         logger.info("RAG service initialized successfully")
 
+    def set_reranker(self, reranker):
+        """
+        注入精排器（DashScopeReranker）。
+
+        在 initialize() 之后由 init_agent_module() 调用。
+        Reranker 是可选组件——为 None 时 retrieve() 自动跳过精排步骤。
+
+        为什么用 setter 而不是 __init__ 参数？
+          Reranker 依赖 settings.reranker_* 配置，这些配置和 LLM/Embedding
+          配置分离。保持 RAGService 的构造简洁，通过 setter 做可选注入。
+        """
+        self.reranker = reranker
+
     async def retrieve(
         self,
         query: str,
@@ -164,7 +181,33 @@ class RAGService:
         # ==== Small-to-Large：chunk → 父文档 → 去重 ====
         final_docs = await self.processor.post_process_retrieval(retrieved_chunks)
 
+        # ==== 精排（P1 修复：Reranker 正式接入检索管道）====
+        # 混合检索（Dense+Sparse）是"粗排"——基于向量距离和 BM25 打分，
+        # 关注的是"长得像"。Reranker 是"精排"——用 Cross-Encoder 做深度
+        # 语义匹配，关注的是"真正相关"。
+        #
+        # 典型效果：粗排 top 20 中混入了"番茄蛋花汤"（和"番茄炒蛋"向量相似），
+        #          Reranker 能识别出这其实不相关并把它排到后面。
+        #
+        # 降级策略：reranker 为 None（未配置或初始化失败）→ 跳过精排
+        #           reranker.rerank() 抛异常 → 打 warning，用粗排结果
+        if self.reranker and final_docs:
+            try:
+                final_docs = await self.reranker.rerank(
+                    query=query,
+                    documents=final_docs,
+                    top_n=top_k,
+                )
+                logger.info(
+                    "Reranker: %d docs re-ranked for query='%s...'",
+                    len(final_docs), query[:40],
+                )
+            except Exception as e:
+                logger.warning("Reranker failed, using coarse ranking: %s", e)
+                # 精排失败不阻塞主流程，降级用粗排结果
+
         # ==== 写入缓存 ====
+        # 注意：缓存的是精排后的结果，下次相同查询直接命中缓存，不再重复精排
         await self.cache.set(query, final_docs, user_id)
 
         logger.info(

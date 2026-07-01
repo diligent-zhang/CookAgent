@@ -38,14 +38,16 @@ class QueryRewriter:
           三级保护，任何一级不满足都返回原查询：
             1. enabled = False → 不启用
             2. 意图类型不在白名单 → 不需要改写
-            3. 查询太短 (<10字) → 没有噪音可去除
+            3. 查询太短 (<5字) → 极短输入不需要改写
             4. LLM 出错 → 降级返回原查询
         """
         if not self.enabled:
             return query
         if intent_type not in REWRITE_INTENTS:
             return query
-        if len(query)<20:
+        # 阈值从旧值 20 降到 5：典型中文菜谱查询如"番茄炒蛋怎么做"只有 7 字，
+        # "清蒸鲈鱼"只有 4 字。5 字能覆盖绝大多数有意义的查询，同时过滤"你好"等纯问候。
+        if len(query) < 5:
             return query
         
         try:
