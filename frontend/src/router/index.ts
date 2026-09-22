@@ -43,6 +43,11 @@ const router = createRouter({
       component: () => import('@/pages/DietManagement.vue'),
     },
     {
+      path: '/llm-usage',
+      name: 'llm-usage',
+      component: () => import('@/pages/LlmUsage.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/agent',
     },

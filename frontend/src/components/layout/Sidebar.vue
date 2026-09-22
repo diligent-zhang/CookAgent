@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 import { useConversation } from '@/composables/useConversation'
 import { useAgent } from '@/composables/useAgent'
-import { Plus, MessageCircle, Bot, LogOut, ChefHat, ClipboardList } from 'lucide-vue-next'
+import { Plus, MessageCircle, Bot, LogOut, ChefHat, ClipboardList, BarChart } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -142,6 +142,14 @@ function handleLogout() {
       >
         <ClipboardList :size="14" />
         饮食管理
+      </button>
+      <button
+        @click="router.push('/llm-usage')"
+        :class="['flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
+          route.path === '/llm-usage' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+      >
+        <BarChart :size="14" />
+        LLM 用量
       </button>
     </div>
 

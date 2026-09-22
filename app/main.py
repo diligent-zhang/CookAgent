@@ -111,6 +111,9 @@ app.include_router(agent_router, prefix=settings.API_V1_STR)
 from app.diet.router import router as diet_router
 app.include_router(diet_router, prefix=settings.API_V1_STR)
 
+from app.agent.llm_stats_router import router as llm_stats_router
+app.include_router(llm_stats_router, prefix=settings.API_V1_STR)
+
 
 @app.get("/")
 async def root():
