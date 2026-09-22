@@ -85,6 +85,7 @@ function handleStop() {
         :is-streaming="isStreaming"
         :is-loading="isLoading"
         :current-steps="currentSteps"
+        @send="handleSend"
       />
 
       <!-- Standard Chat -->
@@ -94,6 +95,7 @@ function handleStop() {
         :streaming-content="streamingContent"
         :is-streaming="isStreaming"
         :is-loading="isLoading"
+        @send="handleSend"
       />
 
       <ChatInput

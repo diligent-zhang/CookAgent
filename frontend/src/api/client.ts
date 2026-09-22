@@ -46,6 +46,14 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return request<T>('POST', path, body)
 }
 
+export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>('PATCH', path, body)
+}
+
+export function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>('PUT', path, body)
+}
+
 export function apiDelete<T>(path: string): Promise<T> {
   return request<T>('DELETE', path)
 }

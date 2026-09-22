@@ -11,6 +11,22 @@ const props = defineProps<{
   isLoading?: boolean
 }>()
 
+const emit = defineEmits<{
+  send: [content: string]
+}>()
+
+const suggestions = [
+  '🍅 番茄炒蛋怎么做？',
+  '🥬 夏天适合吃什么菜？',
+  '🥩 牛肉有哪些做法？',
+  '🔪 新手必学的简单菜',
+]
+
+function handleSuggest(text: string) {
+  if (props.isStreaming) return
+  emit('send', text)
+}
+
 const container = ref<HTMLElement | null>(null)
 
 watch(
@@ -33,7 +49,12 @@ onMounted(() => {
 })
 
 function renderMarkdown(text: string): string {
-  return marked(text, { breaks: true }) as string
+  let html = marked(text, { breaks: true }) as string
+  html = html.replace(
+    /<a href="(https?:\/\/[^"]+)">/g,
+    '<a href="$1" target="_blank" rel="noopener">',
+  )
+  return html
 }
 </script>
 
@@ -49,18 +70,14 @@ function renderMarkdown(text: string): string {
       <div class="text-6xl mb-4">🍳</div>
       <p class="text-lg font-medium text-gray-600 mb-2">欢迎使用 CookAgent</p>
       <p class="text-sm">输入你想做的菜或烹饪问题，我来帮你！</p>
-      <div class="mt-6 grid grid-cols-2 gap-2 text-xs">
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🍅 番茄炒蛋怎么做？
-        </button>
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🥬 夏天适合吃什么菜？
-        </button>
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🥩 牛肉有哪些做法？
-        </button>
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🔪 新手必学的简单菜
+      <div class="mt-6 grid grid-cols-2 gap-2 text-xs max-w-xl w-full px-4">
+        <button
+          v-for="s in suggestions"
+          :key="s"
+          @click="handleSuggest(s)"
+          class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors text-left"
+        >
+          {{ s }}
         </button>
       </div>
     </div>

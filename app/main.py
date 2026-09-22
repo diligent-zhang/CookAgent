@@ -66,6 +66,11 @@ async def lifespan(app: FastAPI):
     init_agent_module(llm_provider, rag_service, redis_client)
     print("[STARTUP] Agent module initialized.")
 
+    # 将 LLM Provider 注入到 Diet 模块（用于 AI 文字解析）
+    from app.diet.router import init_diet_module
+    init_diet_module(llm_provider)
+    print("[STARTUP] Diet module initialized.")
+
     yield
 
     # ===== 关闭阶段 =====
@@ -102,6 +107,9 @@ app.include_router(conversation_router, prefix=settings.API_V1_STR)
 
 from app.agent import agent_router
 app.include_router(agent_router, prefix=settings.API_V1_STR)
+
+from app.diet.router import router as diet_router
+app.include_router(diet_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")

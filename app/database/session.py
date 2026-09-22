@@ -43,6 +43,7 @@ async def init_db():
     注意：生产环境应该用 Alembic 做 migration，这里用 create_all 简化开发。
     """
     import app.agent.models  # noqa: F401 确保 Agent 表模型已注册到 Base
+    import app.diet.models  # noqa: F401 确保饮食模块表模型已注册到 Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

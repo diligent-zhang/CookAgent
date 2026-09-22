@@ -21,7 +21,7 @@ class _JSONEncoder(json.JSONEncoder):
 
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.schemas import (
@@ -63,9 +63,16 @@ def init_agent_module(llm_provider, rag_service, redis_client=None):
     from app.agent.agents.default import GeneralAgent
     from app.agent.subagents.builtin.recipe_master import RecipeMasterAgent
     from app.agent.subagents.builtin.diet_planner import DietPlannerAgent
+    from app.agent.tools import inject_meal_plan_deps, inject_diet_tools_deps
     from app.config import settings
 
     registry = get_agent_registry()
+
+    # ==== 注入饮食规划工具依赖 ====
+    inject_meal_plan_deps(rag_service, llm_provider)
+
+    # ==== 注入饮食管理工具依赖（AI 文字解析用 LLM）====
+    inject_diet_tools_deps(llm_provider)
 
     # ==== 初始化 Reranker ====
     # Reranker 是可选的——配置关了或初始化失败都不影响主流程
@@ -154,6 +161,43 @@ async def delete_session(
     if not deleted:
         raise HTTPException(status_code=404, detail="会话不存在")
     return None
+
+
+# ===== 饮食计划文件下载 =====
+
+@router.get("/meal-plan/download/{filename}")
+async def download_meal_plan(filename: str):
+    """下载导出的饮食计划文件（Markdown / ICS / HTML）。
+
+    安全：文件名必须匹配白名单格式（meal_plan_YYYYMMDD_<hex8>.<ext>），
+    且解析后的真实路径必须位于导出目录内，杜绝路径穿越。
+    导出文件名含随机 uuid，URL 不可猜测，因此该端点无需登录态
+    （前端 <a download> 直接点击即可）。
+    """
+    import os
+
+    from app.agent.tools.meal_plan_tools import (
+        EXPORT_MEDIA_TYPES,
+        get_plan_storage_dir,
+        is_safe_plan_filename,
+    )
+
+    if not is_safe_plan_filename(filename):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    storage_dir = get_plan_storage_dir()
+    filepath = os.path.abspath(os.path.join(storage_dir, filename))
+    if os.path.commonpath([filepath, storage_dir]) != storage_dir:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    ext = os.path.splitext(filename)[1].lower()
+    return FileResponse(
+        filepath,
+        media_type=EXPORT_MEDIA_TYPES.get(ext, "application/octet-stream"),
+        filename=filename,
+    )
 
 
 # ===== 核心：Agent 聊天（SSE 流式）=====

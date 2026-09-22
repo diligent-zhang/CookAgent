@@ -12,6 +12,22 @@ const props = defineProps<{
   currentSteps?: AgentStep[]
 }>()
 
+const emit = defineEmits<{
+  send: [content: string]
+}>()
+
+const suggestions = [
+  '🍅 番茄炒蛋怎么做？再帮我估算一下热量',
+  '🥬 我对虾过敏，推荐几道简单的家常菜',
+  '📅 帮我制定一周减脂食谱，每天约1500千卡，不吃辣',
+  '🗓️ 把饮食计划整理成能导入手机日历的文件',
+]
+
+function handleSuggest(text: string) {
+  if (props.isStreaming) return
+  emit('send', text)
+}
+
 const container = ref<HTMLElement | null>(null)
 
 watch(
@@ -34,7 +50,18 @@ onMounted(() => {
 })
 
 function renderMarkdown(text: string): string {
-  return marked(text, { breaks: true }) as string
+  let html = marked(text, { breaks: true }) as string
+  // 饮食计划下载链接 → 加 download 属性 + 醒目样式（不离开页面直接下载）
+  html = html.replace(
+    /<a href="(\/api\/v1\/agent\/meal-plan\/download\/[^"]+)">/g,
+    '<a href="$1" download target="_blank" rel="noopener" class="plan-download">📥 ',
+  )
+  // 其他外链 → 新窗口打开
+  html = html.replace(
+    /<a href="(https?:\/\/[^"]+)">/g,
+    '<a href="$1" target="_blank" rel="noopener">',
+  )
+  return html
 }
 </script>
 
@@ -49,13 +76,15 @@ function renderMarkdown(text: string): string {
     <div v-if="messages.length === 0 && !isStreaming && !isLoading" class="flex flex-col items-center justify-center h-full text-gray-400">
       <div class="text-6xl mb-4">🤖</div>
       <p class="text-lg font-medium text-gray-600 mb-2">Agent 智能烹饪助手</p>
-      <p class="text-sm">我会自动搜索菜谱、估算营养、检查食材安全，一步步帮你解决烹饪问题！</p>
-      <div class="mt-6 grid grid-cols-2 gap-2 text-xs">
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🍅 番茄炒蛋怎么做？再帮我估算一下热量
-        </button>
-        <button class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-left">
-          🥬 我对虾过敏，推荐几道简单的家常菜
+      <p class="text-sm">我会自动搜索菜谱、估算营养、制定饮食计划，一步步帮你解决烹饪问题！</p>
+      <div class="mt-6 grid grid-cols-2 gap-2 text-xs max-w-xl w-full px-4">
+        <button
+          v-for="s in suggestions"
+          :key="s"
+          @click="handleSuggest(s)"
+          class="px-3 py-2 bg-gray-100 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors text-left"
+        >
+          {{ s }}
         </button>
       </div>
     </div>

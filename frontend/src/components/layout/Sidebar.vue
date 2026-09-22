@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 import { useConversation } from '@/composables/useConversation'
 import { useAgent } from '@/composables/useAgent'
-import { Plus, MessageCircle, Bot, LogOut, ChefHat } from 'lucide-vue-next'
+import { Plus, MessageCircle, Bot, LogOut, ChefHat, ClipboardList } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -131,6 +131,18 @@ function handleLogout() {
       <p v-if="conversations.length === 0" class="text-gray-400 text-xs text-center py-4">
         暂无对话
       </p>
+    </div>
+
+    <!-- 功能入口 -->
+    <div class="px-3 pb-2 flex flex-col gap-1">
+      <button
+        @click="router.push('/diet')"
+        :class="['flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
+          route.path === '/diet' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+      >
+        <ClipboardList :size="14" />
+        饮食管理
+      </button>
     </div>
 
     <!-- User Footer -->

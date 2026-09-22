@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { Send, Square } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -12,12 +12,23 @@ const emit = defineEmits<{
 }>()
 
 const input = ref('')
+const textarea = ref<HTMLTextAreaElement | null>(null)
+
+const MAX_HEIGHT = 128
+
+function autoResize() {
+  const el = textarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, MAX_HEIGHT) + 'px'
+}
 
 function handleSend() {
   const content = input.value.trim()
   if (!content || props.isStreaming) return
   emit('send', content)
   input.value = ''
+  nextTick(autoResize)
 }
 </script>
 
@@ -25,10 +36,12 @@ function handleSend() {
   <div class="border-t border-gray-200 p-4 bg-white">
     <div class="flex items-end gap-3 max-w-3xl mx-auto">
       <textarea
+        ref="textarea"
         v-model="input"
+        @input="autoResize"
         @keydown.enter.exact.prevent="handleSend"
-        placeholder="输入你的烹饪问题，按 Enter 发送..."
-        class="flex-1 resize-none rounded-xl border border-gray-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent max-h-32"
+        placeholder="输入你的烹饪问题，Enter 发送 / Shift+Enter 换行..."
+        class="flex-1 resize-none rounded-xl border border-gray-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent max-h-32 leading-relaxed"
         rows="1"
         :disabled="isStreaming"
       />

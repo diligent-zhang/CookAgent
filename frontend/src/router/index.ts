@@ -38,6 +38,11 @@ const router = createRouter({
       meta: { mode: 'agent' },
     },
     {
+      path: '/diet',
+      name: 'diet',
+      component: () => import('@/pages/DietManagement.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/agent',
     },

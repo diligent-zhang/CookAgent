@@ -261,6 +261,12 @@ class Settings:
         metadata_filter_raw = rag_raw.get("metadata_filter", {})
         self.metadata_filter_enabled: bool = metadata_filter_raw.get("enabled", True)
 
+        # ===== P2 新增：饮食管理配置 =====
+        diet_raw = raw.get("diet", {})
+        diet_ai_raw = diet_raw.get("ai_parsing", {})
+        self.diet_enabled: bool = diet_raw.get("enabled", True)
+        self.diet_ai_parsing_enabled: bool = diet_ai_raw.get("enabled", True)
+
         # JWT 密钥（从 .env 加载，已在 load_config 中注入）
         self.JWT_SECRET_KEY: str = (
             raw.get("JWT_SECRET_KEY", "")

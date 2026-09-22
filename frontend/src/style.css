@@ -13,6 +13,71 @@
 }
 
 /* Markdown content styles */
+.markdown-body {
+  word-break: break-word;
+}
+.markdown-body p {
+  margin: 0.4em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+  line-height: 1.4;
+}
+.markdown-body h1 { font-size: 1.25rem; }
+.markdown-body h2 { font-size: 1.1rem; }
+.markdown-body h3 { font-size: 1rem; }
+/* Tailwind Preflight 会清除列表样式，这里恢复 markdown 列表的圆点/序号 */
+.markdown-body ul {
+  list-style: disc;
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+}
+.markdown-body ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+}
+.markdown-body li { margin: 0.2em 0; }
+.markdown-body li > p { margin: 0; }
+.markdown-body blockquote {
+  border-left: 3px solid #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 6px 12px;
+  margin: 0.5em 0;
+  border-radius: 0 8px 8px 0;
+}
+.markdown-body blockquote p { margin: 0.2em 0; }
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 0.8em 0;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.92em;
+  width: 100%;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #e5e7eb;
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown-body th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+.markdown-body a {
+  color: #ea580c;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .markdown-body pre {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -31,4 +96,18 @@
 .markdown-body pre code {
   background: none;
   padding: 0;
+}
+/* 饮食计划导出文件下载按钮 */
+.markdown-body a.plan-download {
+  display: inline-block;
+  background: #ff6b35;
+  color: #fff;
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.markdown-body a.plan-download:hover {
+  background: #e85a24;
 }
