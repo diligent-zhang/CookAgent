@@ -54,7 +54,9 @@ cache:
 database:
   postgres:
     host: "127.0.0.1"
-    port: 5432
+    # 5433 而非默认 5432：宿主 5432 被本机 PostgreSQL 17 服务占用，
+    # Docker 里的 cookhero_postgres 映射在 5433（见 CookHero/deployments/docker-compose.yml）
+    port: 5433
     database: "cookhero"
     user: "cookhero"
     password: "${DATABASE_PASSWORD}"
@@ -134,7 +136,7 @@ agent:
   enabled_agents:
     - "recipe_master"
     - "general"
-    # - "diet_planner"            # P2 启用
+    - "diet_planner"
 
 # --- 11. RAG 增强配置 ---
 rag:
@@ -144,3 +146,10 @@ rag:
     top_n: 5                      # 精排后保留 Top5
   metadata_filter:
     enabled: true
+
+# --- 12. 饮食管理配置 ---
+diet:
+  enabled: true
+  ai_parsing:
+    enabled: true               # AI 解析自然语言饮食记录
+    confidence_threshold: 0.6   # 低置信度标记为需人工确认

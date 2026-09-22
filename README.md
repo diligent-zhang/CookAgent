@@ -207,9 +207,14 @@ docker compose up -d
 ```
 
 这将启动：
-- PostgreSQL（pgvector 扩展，端口 5432）
+- PostgreSQL（pgvector 扩展，宿主端口 **5433**，见下方说明）
 - Milvus（向量数据库，端口 19530）
 - Redis（缓存，端口 6379）
+
+> 端口说明：宿主 5432 常被本机安装的 PostgreSQL Windows 服务占用，
+> 若与该服务冲突，应用会连到错误的数据库并报 password authentication failed。
+> 因此 `config.yml` 中 `database.postgres.port` 与 docker-compose 的映射端口需保持一致
+> （当前为 5433）。
 
 ### 3. 配置环境变量
 

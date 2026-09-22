@@ -30,6 +30,9 @@ Desktop.ini
 # Milvus
 milvus/volumes/
 
+# 用户导出的饮食计划文件
+data/meal_plans/
+
 # Node (frontend)
 node_modules/
 frontend/dist/

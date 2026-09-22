@@ -17,6 +17,7 @@ psycopg-pool==3.2.6
 # LangChain 生态
 langchain==1.1.0
 langchain-core==1.2.11
+langchain-community==0.4.1
 langchain-openai==1.1.0
 langchain-milvus==0.3.0
 langchain-text-splitters==1.0.0
